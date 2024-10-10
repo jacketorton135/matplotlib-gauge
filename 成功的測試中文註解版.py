@@ -17,12 +17,20 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg  # 匯入 matplo
 from matplotlib.patches import Wedge  # 匯入 matplotlib 的 Wedge 類別，用於繪製圓形扇形
 from matplotlib.animation import FuncAnimation  # 匯入 matplotlib 的 FuncAnimation 類別，用於創建動畫
 from data_sync import connect_and_sync  # 從 data_sync 模組匯入 connect_and_sync 函數
-
+from 合併搜尋 import UnifiedHealthApp
+import subprocess
+from tkhtmlview import HTMLLabel
 def start_data_sync():
     connect_and_sync()  # 呼叫 connect_and_sync 函數進行數據同步
     button = tk.Button(button_frame, text="連線", command=connect_and_sync)  # 創建一個按鈕，點擊時進行數據同步
     print("數據同步已啟動")  # 在控制台打印數據同步啟動的消息
-
+def open_webview():
+    # 使用 PyWebView 開啟嵌入的網頁
+    webview.create_window('嵌入網頁', 'https://9ffea55d-e78d-470b-b56c-c9b2bbe836c1-00-3bgh7eg56lmo3.pike.replit.dev/')
+    webview.start()
+def open_merge_search():
+    # 使用 subprocess 執行合併搜尋.py
+    subprocess.run(["python", "合併搜尋.py"])
 def generate_qr_code(data, filename="linebotchat.png"):
     qr = qrcode.QRCode(
         version=1,  # 設定 QR 碼的版本
@@ -331,11 +339,15 @@ def open_looker_studio():
     # 打開 Looker Studio 的報告頁面
     url = "https://lookerstudio.google.com/reporting/8661248a-16c8-4735-8d06-5aceb1613022/page/pwl4D"
     webbrowser.open(url)  # 在瀏覽器中打開 URL
+def thingspeak():
+    # 打開 Looker Studio 的報告頁面
+    url = "https://thingspeak.com/channels/2466473"
+    webbrowser.open(url)  # 在瀏覽器中打開 URL
 
 # GUI 設置
 main_window = tk.Tk()  # 創建主窗口
 main_window.title("MR蔣監控系統")  # 設置主窗口標題
-main_window.geometry("1000x900")  # 設置主窗口大小
+main_window.geometry("1200x900")  # 設置主窗口大小
 
 main_frame = tk.Frame(main_window)  # 創建主框架
 main_frame.pack(fill=tk.BOTH, expand=True)  # 填滿整個窗口並擴展
@@ -378,9 +390,11 @@ button_frame.pack(side=tk.TOP, fill=tk.X)
 buttons = [
     ("加入AI小幫手QR code", open_qr_code),
     ("統計圖示", open_looker_studio),  # 如果有其他功能，請替換 None
-    ("Google Sheet連結", None),  # 如果有其他功能，請替換 None
+    ("Thingspeak", thingspeak),  # 如果有其他功能，請替換 None
     ("連線", connect_and_sync),
+    ("資料管理", open_merge_search),
     ("異常事件紀錄", toggle_treeview),
+    ("歷史紀錄動態網頁", open_webview),
 ]
 
 # 創建並顯示按鈕
@@ -395,11 +409,13 @@ treeview_frame = tk.Frame(main_window)  # 創建 Treeview 框架
 treeview_frame.pack(fill=tk.BOTH, expand=True)  # 填滿整個窗口並擴展
 
 # 創建 Treeview
-tree = ttk.Treeview(treeview_frame, columns=("時間", "目前數值", "異常狀態"), show='headings')
+tree = ttk.Treeview(treeview_frame, columns=("時間","目前欄位", "目前數值", "異常狀態"), show='headings')
 tree.heading("時間", text="時間")  # 設置時間列標題
+tree.heading("目前欄位", text="目前欄位")  # 設置目前數值列標題
 tree.heading("目前數值", text="目前數值")  # 設置目前數值列標題
 tree.heading("異常狀態", text="異常狀態")  # 設置異常狀態列標題
 tree.column("時間", width=150)  # 設置時間列寬度
+tree.column("目前欄位", width=150)  # 設置目前數值列寬度
 tree.column("目前數值", width=150)  # 設置目前數值列寬度
 tree.column("異常狀態", width=150)  # 設置異常狀態列寬度
 
