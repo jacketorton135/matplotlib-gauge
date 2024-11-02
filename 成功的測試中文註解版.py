@@ -18,15 +18,19 @@ from matplotlib.patches import Wedge  # 匯入 matplotlib 的 Wedge 類別，用
 from matplotlib.animation import FuncAnimation  # 匯入 matplotlib 的 FuncAnimation 類別，用於創建動畫
 from data_sync import connect_and_sync  # 從 data_sync 模組匯入 connect_and_sync 函數
 from 合併搜尋 import UnifiedHealthApp
+
+from tkinterweb import HtmlFrame
 import subprocess
-from tkhtmlview import HTMLLabel
+
 def start_data_sync():
     connect_and_sync()  # 呼叫 connect_and_sync 函數進行數據同步
     button = tk.Button(button_frame, text="連線", command=connect_and_sync)  # 創建一個按鈕，點擊時進行數據同步
     print("數據同步已啟動")  # 在控制台打印數據同步啟動的消息
+
+
 def open_webview():
     # 使用 PyWebView 開啟嵌入的網頁
-    webview.create_window('嵌入網頁', 'https://9ffea55d-e78d-470b-b56c-c9b2bbe836c1-00-3bgh7eg56lmo3.pike.replit.dev/')
+    webbrowser.open('嵌入網頁', 'https://9ffea55d-e78d-470b-b56c-c9b2bbe836c1-00-3bgh7eg56lmo3.pike.replit.dev/')
     webview.start()
 def open_merge_search():
     # 使用 subprocess 執行合併搜尋.py
@@ -105,127 +109,112 @@ def toggle_treeview():
     else:
         treeview_frame.pack(fill=tk.BOTH, expand=True)  # 顯示 treeview_frame，並擴展以填充父容器
         load_data_from_db()  # 從資料庫加載數據
-
 def load_data_from_db():
-    conn = pymysql.connect(host='localhost', port=3306, user='root', password='oneokrock12345', database='heart rate monitor')  # 連接到 MySQL 資料庫
-    cursor = conn.cursor()  # 創建資料庫游標
+    # 連接到 MySQL 數據庫，提供連接的主機、端口、用戶名、密碼和數據庫名稱
+    conn = pymysql.connect(host='localhost', port=3306, user='root', password='oneokrock12345', database='heart rate monitor')
+    cursor = conn.cursor()  # 創建游標以執行 SQL 查詢
 
-    for item in tree.get_children():  # 遍歷 tree 的所有子項
-        tree.delete(item)  # 刪除每個子項
+    # 清除 tree 中的所有子項目
+    for item in tree.get_children():
+        tree.delete(item)
 
-    tables = ['heart_rate', 'dht11', 'bmi']  # 定義要查詢的表名
-    table_structures = {}  # 創建空字典存儲表結構
-    for table in tables:  # 遍歷每個表
-        cursor.execute(f"DESCRIBE {table}")  # 查詢表的結構
-        table_structures[table] = [row[0] for row in cursor.fetchall()]  # 存儲表的列名
+    # 定義要查詢的表格名稱
+    tables = ['heart_rate', 'dht11', 'bmi']
+    table_structures = {}  # 存儲表格結構
+    time_columns = {}  # 存儲每個表格的時間戳記列名稱
 
-    print("Table structures:", table_structures)  # 打印表結構
+    # 遍歷每個表格，檢查其結構並找到時間戳記列
+    for table in tables:
+        cursor.execute(f"DESCRIBE {table}")  # 查詢表格的結構
+        columns = cursor.fetchall()  # 獲取表格的列名
+        table_structures[table] = [row[0] for row in columns]  # 存儲列名
 
-    time_column = {table: '時間戳記' for table in tables}  # 定義時間戳記列的名稱
-    print("Time columns:", time_column)  # 打印時間戳記列名稱
+        # 假設時間戳記列的名稱包含 "時間" 或 "time"，遍歷表格列名來尋找時間戳記列
+        time_column = next((col[0] for col in columns if '時間' in col[0].lower() or 'time' in col[0].lower()), None)
+        if time_column:
+            time_columns[table] = time_column  # 找到時間戳記列，保存到 time_columns
+        else:
+            print(f"Warning: No time column found in table {table}")  # 如果沒有找到時間戳記列，顯示警告
 
+    # 輸出每個表格的結構和時間戳記列
+    print("Table structures:", table_structures)
+    print("Time columns:", time_columns)
+
+    # 確保我們找到了所有表格所需的時間戳記列
+    if len(time_columns) != len(tables):
+        raise ValueError("Could not find time columns for all tables")  # 如果缺少時間戳記列，則拋出異常
+
+    # 編寫查詢語句，從不同表格中選取異常數據，並且按照時間戳記排序
     query = f"""
     SELECT * FROM (
         SELECT 
-            COALESCE(hr.{time_column['heart_rate']}, d.{time_column['dht11']}, b.{time_column['bmi']}) as timestamp,
-            hr.心跳 as heart_rate, hr.心跳狀態 as heart_rate_status,
-            d.溫度 as temperature, d.濕度 as humidity, d.體溫 as body_temperature, 
-            d.溫度狀態 as temperature_status, d.濕度狀態 as humidity_status, d.體溫狀態 as body_temperature_status,
-            b.BMI as bmi, b.檢查結果 as bmi_status
+            hr.{time_columns['heart_rate']} as timestamp,  -- 選取心跳表的時間戳記列
+            '心跳' as field_name, hr.心跳 as value, hr.心跳狀態 as status
         FROM 
             heart_rate hr
-        LEFT JOIN 
-            dht11 d ON hr.{time_column['heart_rate']} = d.{time_column['dht11']}
-        LEFT JOIN 
-            bmi b ON hr.{time_column['heart_rate']} = b.{time_column['bmi']}
         WHERE 
-            hr.心跳狀態 != '心跳正常'
-            OR d.溫度狀態 != '溫度正常'
-            OR d.濕度狀態 != '濕度正常'
-            OR d.體溫狀態 != '體溫正常'
-            OR b.檢查結果 IN ('體重過輕', '過重', '輕度肥胖', '重度肥胖')
+            hr.心跳狀態 != '心跳正常'  -- 篩選出心跳狀態不正常的數據
         UNION
         SELECT 
-            COALESCE(hr.{time_column['heart_rate']}, d.{time_column['dht11']}, b.{time_column['bmi']}) as timestamp,
-            hr.心跳 as heart_rate, hr.心跳狀態 as heart_rate_status,
-            d.溫度 as temperature, d.濕度 as humidity, d.體溫 as body_temperature, 
-            d.溫度狀態 as temperature_status, d.濕度狀態 as humidity_status, d.體溫狀態 as body_temperature_status,
-            b.BMI as bmi, b.檢查結果 as bmi_status
+            d.{time_columns['dht11']} as timestamp,  -- 選取 DHT11 表的時間戳記列
+            '溫度' as field_name, d.溫度 as value, d.溫度狀態 as status
         FROM 
             dht11 d
-        LEFT JOIN 
-            heart_rate hr ON d.{time_column['dht11']} = hr.{time_column['heart_rate']}
-        LEFT JOIN 
-            bmi b ON d.{time_column['dht11']} = b.{time_column['bmi']}
         WHERE 
-            hr.心跳狀態 != '心跳正常'
-            OR d.溫度狀態 != '溫度正常'
-            OR d.濕度狀態 != '濕度正常'
-            OR d.體溫狀態 != '體溫正常'
-            OR b.檢查結果 IN ('體重過輕', '過重', '輕度肥胖', '重度肥胖')
+            d.溫度狀態 != '溫度正常'  -- 篩選出溫度不正常的數據
         UNION
         SELECT 
-            COALESCE(hr.{time_column['heart_rate']}, d.{time_column['dht11']}, b.{time_column['bmi']}) as timestamp,
-            hr.心跳 as heart_rate, hr.心跳狀態 as heart_rate_status,
-            d.溫度 as temperature, d.濕度 as humidity, d.體溫 as body_temperature, 
-            d.溫度狀態 as temperature_status, d.濕度狀態 as humidity_status, d.體溫狀態 as body_temperature_status,
-            b.BMI as bmi, b.檢查結果 as bmi_status
+            d.{time_columns['dht11']} as timestamp,  -- 選取 DHT11 表的時間戳記列
+            '濕度' as field_name, d.濕度 as value, d.濕度狀態 as status
+        FROM 
+            dht11 d
+        WHERE 
+            d.濕度狀態 != '濕度正常'  -- 篩選出濕度不正常的數據
+        UNION
+        SELECT 
+            d.{time_columns['dht11']} as timestamp,  -- 選取 DHT11 表的時間戳記列
+            '體溫' as field_name, d.體溫 as value, d.體溫狀態 as status
+        FROM 
+            dht11 d
+        WHERE 
+            d.體溫狀態 != '體溫正常'  -- 篩選出體溫不正常的數據
+        UNION
+        SELECT 
+            b.{time_columns['bmi']} as timestamp,  -- 選取 BMI 表的時間戳記列
+            'BMI' as field_name, b.BMI as value, b.檢查結果 as status
         FROM 
             bmi b
-        LEFT JOIN 
-            heart_rate hr ON b.{time_column['bmi']} = hr.{time_column['heart_rate']}
-        LEFT JOIN 
-            dht11 d ON b.{time_column['bmi']} = d.{time_column['dht11']}
         WHERE 
-            hr.心跳狀態 != '心跳正常'
-            OR d.溫度狀態 != '溫度正常'
-            OR d.濕度狀態 != '濕度正常'
-            OR d.體溫狀態 != '體溫正常'
-            OR b.檢查結果 IN ('體重過輕', '過重', '輕度肥胖', '重度肥胖')
+            b.檢查結果 IN ('體重過輕', '過重', '輕度肥胖', '重度肥胖')  -- 篩選出 BMI 不正常的數據
     ) AS combined_data
-    ORDER BY timestamp DESC
+    ORDER BY timestamp DESC  -- 根據時間戳記進行降序排列
     """
 
-    print("Generated query:", query)  # 打印生成的 SQL 查詢語句
-
+    # 輸出生成的 SQL 查詢語句
+    print("Generated query:", query)
 
     try:
-        cursor.execute(query)  # 執行查詢語句
-        abnormal_data = cursor.fetchall()  # 獲取所有異常數據
+        # 執行查詢
+        cursor.execute(query)
+        abnormal_data = cursor.fetchall()  # 獲取查詢結果
 
-        for row in abnormal_data:  # 遍歷每一行異常數據
-            timestamp, heart_rate, heart_rate_status, temperature, humidity, body_temp, temperature_status, humidity_status, body_temp_status, bmi, bmi_status = row  # 解包數據行
+        # 將異常數據逐行插入到 tree 控件中
+        for row in abnormal_data:
+            timestamp, field_name, value, status = row
+            tree.insert("", "end", values=(timestamp, field_name, value, status))
 
-            abnormal_values = []  # 儲存異常值的列表
-            abnormal_statuses = []  # 儲存異常狀態的列表
-
-            if heart_rate_status and heart_rate_status != '心跳正常':  # 如果心跳狀態不正常
-                abnormal_values.append(f"{heart_rate}")  # 添加心跳值到異常值列表
-                abnormal_statuses.append(heart_rate_status)  # 添加心跳狀態到異常狀態列表
-            if temperature_status and temperature_status != '溫度正常':  # 如果溫度狀態不正常
-                abnormal_values.append(f"{temperature}")  # 添加溫度值到異常值列表
-                abnormal_statuses.append(temperature_status)  # 添加溫度狀態到異常狀態列表
-            if humidity_status and humidity_status != '濕度正常':  # 如果濕度狀態不正常
-                abnormal_values.append(f"{humidity}")  # 添加濕度值到異常值列表
-                abnormal_statuses.append(humidity_status)  # 添加濕度狀態到異常狀態列表
-            if body_temp_status and body_temp_status != '體溫正常':  # 如果體溫狀態不正常
-                abnormal_values.append(f"{body_temp}")  # 添加體溫值到異常值列表
-                abnormal_statuses.append(body_temp_status)  # 添加體溫狀態到異常狀態列表
-            if bmi_status in ['體重過輕', '過重', '輕度肥胖', '重度肥胖']:  # 如果 BMI 狀態為異常
-                abnormal_values.append(f"{bmi}")  # 添加 BMI 值到異常值列表
-                abnormal_statuses.append(bmi_status)  # 添加 BMI 狀態到異常狀態列表
-
-            if abnormal_values and abnormal_statuses:  # 如果有異常值和異常狀態
-                tree.insert("", "end", values=(timestamp, ", ".join(abnormal_values), ", ".join(abnormal_statuses)))  # 插入到 treeview 中
-
-    except pymysql.Error as e:  # 捕獲資料庫異常
-        print(f"Database error: {e}")  # 打印異常信息
+    except pymysql.Error as e:
+        # 捕捉並打印數據庫錯誤
+        print(f"Database error: {e}")
     finally:
-        cursor.close()  # 關閉資料庫游標
-        conn.close()  # 關閉資料庫連接
+        # 無論是否發生錯誤，確保關閉游標和數據庫連接
+        cursor.close()
+        conn.close()
+
 
 def create_gauge(fig, ax, min_value, max_value, ranges):
-    arrow = ax.arrow(0.5, 0, 0, 0.3, width=0.02, head_width=0.05, head_length=0.07, fc='black', ec='black')
+    global arrow
+    arrow = None
     colors = ["#2bad4e", "#eff229", "#f25829"]  # 定義顏色列表
     color_texts = ["LOW", "Normal", "HIGH"]  # 定義顏色對應的文字
     angle_ranges = [0, 60, 120]  # 定義顏色區間的角度範圍
@@ -244,32 +233,40 @@ def create_gauge(fig, ax, min_value, max_value, ranges):
         y = 0.35 * np.sin(mid_angle)  # 計算文字的 y 座標
         ax.text(x, y, color_texts[i], ha='center', va='center', fontsize=10, color='black')  # 在扇形區域中間添加文字，並設置字體大小
 
-    arrow = ax.arrow(0.5, 0, 0, 0.3, width=0.02, head_width=0.05, head_length=0.07, fc='black', ec='black')  # 創建箭頭
-
     ax.set_xlim(0, 1)  # 設定 x 軸的範圍
     ax.set_ylim(-0.1, 0.5)  # 設定 y 軸的範圍
     ax.axis('off')  # 隱藏坐標軸
 
-    def set_needle(value):  # 定義設置指針的函數
-        nonlocal arrow  # 使用外部作用域的 arrow 變量
-        if value <= ranges[0][1]:  # 根據值設定指針角度
-            angle = 45
-        elif value <= ranges[1][1]:
-            angle = 90
-        else:
-            angle = 135
+    arrow = None  # 初始化箭頭為 None
+
+    def set_needle(value):
+        global arrow  # 全局變量，存儲目前的箭頭對象，以便後續移除舊箭頭或更新位置
+
+        if arrow:  # 如果箭頭存在
+            arrow.remove()  # 移除舊箭頭
+
+        if value <= ranges[0][1]:  # 如果數值在範圍 0 的最大值內
+            angle = 45  # 設置箭頭的角度為 45°
+        elif value <= ranges[1][1]:  # 如果數值在範圍 1 的最大值內
+            angle = 90  # 設置箭頭的角度為 90°
+        else:  # 如果數值超過範圍 1 的最大值
+            angle = 135  # 設置箭頭的角度為 135°
+
 
         rad = np.radians(angle)  # 將角度轉換為弧度
-        dx = 0.3 * np.cos(rad)  # 計算指針的 x 方向增量
-        dy = 0.3 * np.sin(rad)  # 計算指針的 y 方向增量
-        
-        arrow.remove()
-        arrow = ax.arrow(0.5, 0, dx, dy, width=0.02, head_width=0.05, head_length=0.07, fc='black', ec='black')
-        ax.add_artist(arrow)
-        return arrow
 
-    return arrow, set_needle  # 返回指針和設置指針的函數
+        dx = 0.3 * np.cos(rad)  # 計算箭頭在 x 軸上的移動距離
+        dy = 0.3 * np.sin(rad)  # 計算箭頭在 y 軸上的移動距離
 
+            
+        arrow = ax.arrow(0.5, 0, dx, dy, width=0.02, head_width=0.05, head_length=0.07, fc='black', ec='black')  # 繪製箭頭
+
+        ax.add_artist(arrow)  # 添加箭頭到畫布
+
+        return arrow  # 返回箭頭對象
+
+
+    return set_needle  # 返回設置指針的函數
 def is_high_or_low(value, ranges):
     # 判斷數值是否在範圍外（高或低）
     return value <= ranges[0][1] or value >= ranges[2][0]
@@ -415,8 +412,8 @@ tree.heading("目前欄位", text="目前欄位")  # 設置目前數值列標題
 tree.heading("目前數值", text="目前數值")  # 設置目前數值列標題
 tree.heading("異常狀態", text="異常狀態")  # 設置異常狀態列標題
 tree.column("時間", width=150)  # 設置時間列寬度
-tree.column("目前欄位", width=150)  # 設置目前數值列寬度
-tree.column("目前數值", width=150)  # 設置目前數值列寬度
+tree.column("目前欄位", width=100)  # 設置目前數值列寬度
+tree.column("目前數值", width=100)  # 設置目前數值列寬度
 tree.column("異常狀態", width=150)  # 設置異常狀態列寬度
 
 tree.pack(fill=tk.BOTH, expand=True)  # 將 Treeview 添加到 Treeview 框架中
@@ -446,49 +443,54 @@ def get_latest_data():
     return data  # 返回數據
 
 def update_gauges():
-    data = get_latest_data()
-    for i, (key, value) in enumerate(data.items()):
-        if value is not None and i < len(needle_positions):
-            arrow, set_needle = needle_positions[i]
-            new_arrow = set_needle(value)
-            needle_positions[i] = (new_arrow, set_needle)
-            
-            # 更新指示燈
-            ranges = ranges_spec[key]
-            if is_high_or_low(value, ranges):
-                green_buttons[i].pack_forget()
-                red_buttons[i].pack(side=tk.LEFT, padx=2)
+    data = get_latest_data()  # 獲取最新的數據
+    for i, (key, value) in enumerate(data.items()):  # 遍歷數據字典的每一個鍵值對
+        if value is not None and i < len(needle_positions):  # 如果數據有效且指針列表中有對應的元素
+            set_needle = needle_positions[i]  # 獲取對應的指針設置函數
+            if set_needle is not None:  # 檢查指針設置函數是否有效
+                set_needle(value)  # 更新指針位置
             else:
-                red_buttons[i].pack_forget()
-                green_buttons[i].pack(side=tk.LEFT, padx=2)
+                print(f"Warning: set_needle is None for {key}")  # 如果指針設置函數為 None，則輸出警告
+            
+            ranges = ranges_spec[key]  # 根據鍵獲取對應的範圍設置
+            if is_high_or_low(value, ranges):  # 判斷數據值是否處於高範圍或低範圍
+                green_buttons[i].pack_forget()  # 隱藏綠色按鈕
+                red_buttons[i].pack(side=tk.LEFT, padx=2)  # 顯示紅色按鈕
+            else:
+                red_buttons[i].pack_forget()  # 隱藏紅色按鈕
+                green_buttons[i].pack(side=tk.LEFT, padx=2)  # 顯示綠色按鈕
     
-    for canvas in canvases:
-        canvas.draw()
+    for canvas in canvases:  # 更新每個畫布
+        canvas.draw()  # 重新繪製圖形
     
-    main_window.after(1000, update_gauges)  # 每秒更新一次儀表盤
+    main_window.after(1000, update_gauges)  # 每1秒鐘再次更新
+
+
     
 def create_and_add_gauge(value, frame):
-    # 創建並添加儀表盤
-    fig, ax = plt.subplots(figsize=(2.5, 2))  # 創建圖形
-    ranges = ranges_spec[value]  # 獲取範圍
-    needle, set_needle = create_gauge(fig, ax, ranges[0][0], ranges[-1][1], ranges)  # 創建儀表盤
-    canvas, green_button, red_button = add_labels_and_buttons(frame, fig, ax, ranges, value, google_sheet_url=google_sheets_urls[value])  # 添加標籤和按鈕
-    return needle, set_needle, canvas, green_button, red_button  # 返回指針、設置指針函數、Canvas、綠色按鈕和紅色按鈕
+    fig, ax = plt.subplots(figsize=(2.5, 2))  # 創建一個儀表的畫布，這裡使用了 matplotlib 庫來繪製
+    ranges = ranges_spec[value]  # 獲取對應儀表的範圍設定
+    set_needle = create_gauge(fig, ax, ranges[0][0], ranges[-1][1], ranges)  # 創建儀表，並返回指針設置函數
+    canvas, green_button, red_button = add_labels_and_buttons(frame, fig, ax, ranges, value, google_sheet_url=google_sheets_urls[value])  # 添加標籤和按鈕，並返回畫布和按鈕
+    return set_needle, canvas, green_button, red_button  # 返回指針設置函數、畫布和按鈕
 
-needle_positions = []  # 初始化指針位置列表
-canvases = []  # 初始化 Canvas 列表
-green_buttons = []  # 初始化綠色按鈕列表
-red_buttons = []  # 初始化紅色按鈕列表
 
-for i, value in enumerate(top_values + bottom_values):
-    # 根據頂部和底部的數值類型創建儀表盤
-    frame = top_frame if i < 3 else bottom_frame  # 根據索引選擇框架
-    needle, set_needle, canvas, green_button, red_button = create_and_add_gauge(value, frame)  # 創建並添加儀表盤
-    needle_positions.append((needle, set_needle))  # 添加指針位置
-    canvases.append(canvas)  # 添加 Canvas
-    green_buttons.append(green_button)  # 添加綠色按鈕
-    red_buttons.append(red_button)  # 添加紅色按鈕
-    
+needle_positions = []  # 儲存指針設置函數
+canvases = []  # 儲存畫布
+green_buttons = []  # 儲存綠色按鈕
+red_buttons = []  # 儲存紅色按鈕
+
+for i, value in enumerate(top_values + bottom_values):  # 遍歷 top_values 和 bottom_values
+    frame = top_frame if i < 3 else bottom_frame  # 根據索引來選擇顯示的框架
+    set_needle, canvas, green_button, red_button = create_and_add_gauge(value, frame)  # 創建儀表
+    if set_needle is not None:  # 如果指針設置函數有效
+        needle_positions.append(set_needle)  # 儲存指針設置函數
+        canvases.append(canvas)  # 儲存畫布
+        green_buttons.append(green_button)  # 儲存綠色按鈕
+        red_buttons.append(red_button)  # 儲存紅色按鈕
+    else:
+        print(f"Warning: set_needle is None for {value}")  # 如果指針設置函數無效，輸出警告
+
 update_gauges()  # 更新儀表盤顯示
 show_current_time()  # 啟動時間更新功能
 
