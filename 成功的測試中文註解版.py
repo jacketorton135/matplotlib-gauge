@@ -213,8 +213,6 @@ def load_data_from_db():
 
 
 def create_gauge(fig, ax, min_value, max_value, ranges):
-    global arrow
-    arrow = None
     colors = ["#2bad4e", "#eff229", "#f25829"]  # 定義顏色列表
     color_texts = ["LOW", "Normal", "HIGH"]  # 定義顏色對應的文字
     angle_ranges = [0, 60, 120]  # 定義顏色區間的角度範圍
@@ -237,14 +235,14 @@ def create_gauge(fig, ax, min_value, max_value, ranges):
     ax.set_ylim(-0.1, 0.5)  # 設定 y 軸的範圍
     ax.axis('off')  # 隱藏坐標軸
 
-    arrow = None  # 初始化箭頭為 None
+    # 使用列表來存儲當前箭頭，這樣可以在函數外部訪問
+    current_arrow = [None]
 
     def set_needle(value):
-        global arrow  # 全局變量，存儲目前的箭頭對象，以便後續移除舊箭頭或更新位置
-
-        if arrow:  # 如果箭頭存在
-            arrow.remove()  # 移除舊箭頭
-
+        # 如果存在舊箭頭，先移除它
+        if current_arrow[0] is not None:
+            current_arrow[0].remove()
+            
         if value <= ranges[0][1]:  # 如果數值在範圍 0 的最大值內
             angle = 45  # 設置箭頭的角度為 45°
         elif value <= ranges[1][1]:  # 如果數值在範圍 1 的最大值內
@@ -252,21 +250,19 @@ def create_gauge(fig, ax, min_value, max_value, ranges):
         else:  # 如果數值超過範圍 1 的最大值
             angle = 135  # 設置箭頭的角度為 135°
 
-
         rad = np.radians(angle)  # 將角度轉換為弧度
-
         dx = 0.3 * np.cos(rad)  # 計算箭頭在 x 軸上的移動距離
         dy = 0.3 * np.sin(rad)  # 計算箭頭在 y 軸上的移動距離
-
             
-        arrow = ax.arrow(0.5, 0, dx, dy, width=0.02, head_width=0.05, head_length=0.07, fc='black', ec='black')  # 繪製箭頭
+        # 創建新箭頭並存儲引用
+        current_arrow[0] = ax.arrow(0.5, 0, dx, dy, width=0.02, 
+                                  head_width=0.05, head_length=0.07, 
+                                  fc='black', ec='black')
+        
+        # 不需要手動添加箭頭到畫布，因為arrow()函數已經完成了這個操作
+        return current_arrow[0]
 
-        ax.add_artist(arrow)  # 添加箭頭到畫布
-
-        return arrow  # 返回箭頭對象
-
-
-    return set_needle  # 返回設置指針的函數
+    return set_needle
 def is_high_or_low(value, ranges):
     # 判斷數值是否在範圍外（高或低）
     return value <= ranges[0][1] or value >= ranges[2][0]
